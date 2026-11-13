@@ -148,7 +148,12 @@ impl<S: FastWritable> FastWritable for Lower<S> {
 }
 
 fn flush_lower(dest: &mut (impl fmt::Write + ?Sized), s: &str) -> fmt::Result {
-    dest.write_str(&s.to_lowercase())
+    // ASCII text without uppercase letters is already lowercase
+    if s.is_ascii() && !s.contains(|c: char| c.is_ascii_uppercase()) {
+        dest.write_str(s)
+    } else {
+        dest.write_str(&s.to_lowercase())
+    }
 }
 
 /// Converts to lowercase, alias for the `|lower` filter
@@ -235,7 +240,12 @@ impl<S: FastWritable> FastWritable for Upper<S> {
 }
 
 fn flush_upper(dest: &mut (impl fmt::Write + ?Sized), s: &str) -> fmt::Result {
-    dest.write_str(&s.to_uppercase())
+    // ASCII text without lowercase letters is already uppercase
+    if s.is_ascii() && !s.contains(|c: char| c.is_ascii_lowercase()) {
+        dest.write_str(s)
+    } else {
+        dest.write_str(&s.to_uppercase())
+    }
 }
 
 /// Converts to uppercase, alias for the `|upper` filter
@@ -388,12 +398,8 @@ impl<S: FastWritable> FastWritable for Capitalize<S> {
 fn flush_capitalize(dest: &mut (impl fmt::Write + ?Sized), s: &str) -> fmt::Result {
     let mut chars = s.chars();
     if let Some(c) = chars.next() {
-        write!(
-            dest,
-            "{}{}",
-            c.to_uppercase(),
-            chars.as_str().to_lowercase()
-        )
+        c.to_uppercase().try_for_each(|c| dest.write_char(c))?;
+        flush_lower(dest, chars.as_str())
     } else {
         Ok(())
     }
@@ -492,6 +498,8 @@ mod tests {
         assert_eq!(lower("FOO").unwrap().to_string(), "foo");
         assert_eq!(lower("FooBar").unwrap().to_string(), "foobar");
         assert_eq!(lower("foo").unwrap().to_string(), "foo");
+        assert_eq!(lower("FOO Ä").unwrap().to_string(), "foo ä");
+        assert_eq!(lower("ΟΔΟΣ ΟΔΟΣ").unwrap().to_string(), "οδος οδος");
     }
 
     #[test]
@@ -500,6 +508,7 @@ mod tests {
         assert_eq!(upper("FOO").unwrap().to_string(), "FOO");
         assert_eq!(upper("FooBar").unwrap().to_string(), "FOOBAR");
         assert_eq!(upper("foo").unwrap().to_string(), "FOO");
+        assert_eq!(upper("straße").unwrap().to_string(), "STRASSE");
     }
 
     #[test]
@@ -543,5 +552,6 @@ mod tests {
                 .to_string(),
             "Fo\x0bOo\x0cOo\u{2002}Oo\u{3000}Bar"
         );
+        assert_eq!(&title("äB cD ΟΔΟΣ").unwrap().to_string(), "Äb Cd Οδος");
     }
 }
